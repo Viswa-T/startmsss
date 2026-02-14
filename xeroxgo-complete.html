@@ -1,0 +1,645 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+    <meta name="apple-mobile-web-app-capable" content="yes">
+    <meta name="apple-mobile-web-app-status-bar-style" content="default">
+    <meta name="theme-color" content="#2563eb">
+    <title>XeroxGo - Smart Campus Printing</title>
+    <link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'><text y='.9em' font-size='90'>🖨️</text></svg>">
+    <script src="https://cdn.tailwindcss.com"></script>
+    <style>
+        * {
+            -webkit-tap-highlight-color: transparent;
+        }
+        
+        body {
+            overscroll-behavior: none;
+        }
+        
+        @keyframes spin {
+            to { transform: rotate(360deg); }
+        }
+        
+        .animate-spin {
+            animation: spin 1s linear infinite;
+        }
+        
+        .modal-enter {
+            animation: slideUp 0.3s ease-out;
+        }
+        
+        @keyframes slideUp {
+            from {
+                transform: translateY(100%);
+                opacity: 0;
+            }
+            to {
+                transform: translateY(0);
+                opacity: 1;
+            }
+        }
+        
+        /* Smooth scrolling */
+        html {
+            scroll-behavior: smooth;
+        }
+        
+        /* Hide scrollbar but keep functionality */
+        ::-webkit-scrollbar {
+            width: 0px;
+            background: transparent;
+        }
+        
+        /* Custom file input */
+        input[type="file"] {
+            display: none;
+        }
+    </style>
+</head>
+<body class="bg-gray-50 overflow-x-hidden">
+    <div id="app"></div>
+
+    <script>
+        // Mock vending machines data
+        const MOCK_MACHINES = [
+            {
+                id: 'VM001',
+                name: 'Engineering Block A',
+                address: 'Near Canteen, Ground Floor',
+                availableSlots: 3,
+                status: 'active',
+                distance: 0.2,
+            },
+            {
+                id: 'VM002',
+                name: 'Library Ground Floor',
+                address: 'Main Library, Entrance',
+                availableSlots: 4,
+                status: 'active',
+                distance: 0.5,
+            },
+            {
+                id: 'VM003',
+                name: 'Hostel Block B',
+                address: 'Boys Hostel, Common Area',
+                availableSlots: 2,
+                status: 'active',
+                distance: 0.8,
+            },
+            {
+                id: 'VM004',
+                name: 'Admin Building',
+                address: 'Ground Floor, Main Entrance',
+                availableSlots: 1,
+                status: 'active',
+                distance: 1.2,
+            },
+        ];
+
+        // App State
+        let state = {
+            currentScreen: 'home',
+            selectedMachine: null,
+            uploadedFiles: [],
+            printOptions: {
+                colorMode: 'bw',
+                sides: 'single',
+                copies: 1,
+            },
+            orderHistory: [],
+            showPasswordModal: false,
+            generatedPassword: '',
+            loading: false,
+        };
+
+        // Utility Functions
+        function formatBytes(bytes) {
+            if (bytes === 0) return '0 Bytes';
+            const k = 1024;
+            const sizes = ['Bytes', 'KB', 'MB'];
+            const i = Math.floor(Math.log(bytes) / Math.log(k));
+            return Math.round(bytes / Math.pow(k, i) * 10) / 10 + ' ' + sizes[i];
+        }
+
+        function formatDate(dateString) {
+            const date = new Date(dateString);
+            return date.toLocaleDateString('en-IN', {
+                day: 'numeric',
+                month: 'short',
+                hour: '2-digit',
+                minute: '2-digit',
+            });
+        }
+
+        function calculateTotal() {
+            const totalPages = state.uploadedFiles.reduce((sum, file) => sum + file.pages, 0);
+            const pricePerPage = state.printOptions.colorMode === 'color' ? 5 : 1;
+            const sidesMultiplier = state.printOptions.sides === 'double' ? 0.7 : 1;
+            return Math.round(totalPages * pricePerPage * sidesMultiplier * state.printOptions.copies);
+        }
+
+        function generatePassword() {
+            return Math.random().toString(36).substring(2, 8).toUpperCase();
+        }
+
+        // Actions
+        function setScreen(screen) {
+            state.currentScreen = screen;
+            render();
+        }
+
+        function selectMachine(machine) {
+            state.selectedMachine = machine;
+            state.currentScreen = 'upload';
+            render();
+        }
+
+        function handleFileUpload(files) {
+            const newFiles = Array.from(files).map(file => ({
+                name: file.name,
+                size: file.size,
+                pages: Math.ceil(file.size / 50000),
+                file: file
+            }));
+            state.uploadedFiles = [...state.uploadedFiles, ...newFiles];
+            render();
+        }
+
+        function removeFile(index) {
+            state.uploadedFiles = state.uploadedFiles.filter((_, i) => i !== index);
+            render();
+        }
+
+        function updatePrintOption(key, value) {
+            state.printOptions[key] = value;
+            render();
+        }
+
+        function handlePayment() {
+            state.loading = true;
+            render();
+
+            setTimeout(() => {
+                const password = generatePassword();
+                state.generatedPassword = password;
+                
+                const newOrder = {
+                    id: `ORD${Date.now()}`,
+                    machine: state.selectedMachine,
+                    files: state.uploadedFiles,
+                    options: { ...state.printOptions },
+                    total: calculateTotal(),
+                    password: password,
+                    timestamp: new Date().toISOString(),
+                };
+                
+                state.orderHistory = [newOrder, ...state.orderHistory];
+                state.loading = false;
+                state.showPasswordModal = true;
+                render();
+            }, 2000);
+        }
+
+        function resetOrder() {
+            state.uploadedFiles = [];
+            state.printOptions = { colorMode: 'bw', sides: 'single', copies: 1 };
+            state.selectedMachine = null;
+            state.currentScreen = 'home';
+            state.showPasswordModal = false;
+            render();
+        }
+
+        // Components
+        function HomeScreen() {
+            return `
+                <div class="min-h-screen bg-gray-50">
+                    <div class="bg-white border-b border-gray-200 p-4">
+                        <h1 class="text-2xl font-bold text-gray-900">XeroxGo</h1>
+                        <p class="text-sm text-gray-600">Smart Campus Printing</p>
+                    </div>
+                    
+                    <div class="bg-blue-50 px-5 py-3 flex items-center gap-2 text-blue-900">
+                        <span>📍</span>
+                        <span class="text-sm font-medium">Coimbatore, Tamil Nadu</span>
+                    </div>
+
+                    <div class="p-5 pb-24">
+                        <h2 class="text-lg font-bold text-gray-900 mb-4">Nearby Machines</h2>
+                        ${MOCK_MACHINES.map((machine, index) => `
+                            <div onclick="selectMachine(${index})" class="bg-white rounded-xl p-4 mb-3 shadow-sm cursor-pointer hover:shadow-md transition-all active:scale-95">
+                                <div class="flex items-center mb-3">
+                                    <div class="w-12 h-12 rounded-full bg-blue-50 flex items-center justify-center text-2xl mr-3">
+                                        🖨️
+                                    </div>
+                                    <div class="flex-1">
+                                        <div class="font-semibold text-gray-900">${machine.name}</div>
+                                        <div class="text-sm text-gray-600">${machine.address}</div>
+                                    </div>
+                                    <div class="text-sm font-semibold text-blue-600">${machine.distance} km</div>
+                                </div>
+                                <div class="flex justify-between items-center">
+                                    <div class="flex items-center gap-2">
+                                        <div class="w-2 h-2 rounded-full bg-green-500"></div>
+                                        <span class="text-sm text-green-600 font-medium">Active</span>
+                                    </div>
+                                    <span class="text-sm text-gray-600">${machine.availableSlots}/4 slots available</span>
+                                </div>
+                            </div>
+                        `).join('')}
+
+                        ${state.orderHistory.length > 0 ? `
+                            <div class="mt-6">
+                                <h2 class="text-lg font-bold text-gray-900 mb-4">Recent Orders</h2>
+                                ${state.orderHistory.slice(0, 3).map(order => `
+                                    <div class="bg-white rounded-xl p-5 mb-3 shadow-sm">
+                                        <div class="flex justify-between mb-2">
+                                            <div class="font-bold text-gray-900">${order.machine.name}</div>
+                                            <div class="text-lg font-bold text-blue-600">₹${order.total}</div>
+                                        </div>
+                                        <div class="text-sm text-gray-600 mb-3">${formatDate(order.timestamp)}</div>
+                                        <div class="bg-blue-50 rounded-lg p-3 flex items-center justify-center gap-2">
+                                            <span class="text-sm text-blue-900">Password:</span>
+                                            <span class="text-base font-bold text-blue-900 tracking-wider">${order.password}</span>
+                                        </div>
+                                    </div>
+                                `).join('')}
+                            </div>
+                        ` : ''}
+                    </div>
+
+                    ${BottomNav('home')}
+                </div>
+            `;
+        }
+
+        function UploadScreen() {
+            return `
+                <div class="min-h-screen bg-gray-50">
+                    <div class="bg-white border-b border-gray-200 p-4 flex items-center gap-3">
+                        <button onclick="setScreen('home')" class="text-2xl text-gray-900 active:scale-90 transition-transform">←</button>
+                        <h1 class="text-2xl font-bold text-gray-900">Upload Files</h1>
+                    </div>
+
+                    <div class="p-5 pb-24">
+                        <div class="bg-blue-50 rounded-xl p-4 mb-5 flex items-center gap-3">
+                            <span class="text-xl">🖨️</span>
+                            <span class="font-semibold text-blue-900">${state.selectedMachine?.name}</span>
+                        </div>
+
+                        <h2 class="text-lg font-bold text-gray-900 mb-4">Documents</h2>
+                        
+                        <label for="fileInput" class="block bg-white border-2 border-dashed border-gray-300 rounded-xl p-8 text-center cursor-pointer hover:border-blue-600 hover:bg-gray-50 transition-all active:scale-95 mb-4">
+                            <div class="text-4xl mb-3">☁️</div>
+                            <div class="text-base font-semibold text-gray-900 mb-1">Upload Files</div>
+                            <div class="text-sm text-gray-600">PDF, DOC, DOCX, Images</div>
+                        </label>
+                        <input id="fileInput" type="file" multiple accept=".pdf,.doc,.docx,image/*" onchange="handleFileChange(event)">
+
+                        ${state.uploadedFiles.map((file, index) => `
+                            <div class="bg-white rounded-xl p-4 flex items-center gap-3 mb-2 shadow-sm">
+                                <span class="text-2xl">📄</span>
+                                <div class="flex-1 min-w-0">
+                                    <div class="font-semibold text-gray-900 truncate">${file.name}</div>
+                                    <div class="text-sm text-gray-600">${formatBytes(file.size)}</div>
+                                </div>
+                                <button onclick="removeFile(${index})" class="text-2xl text-red-500 active:scale-90">×</button>
+                            </div>
+                        `).join('')}
+
+                        ${state.uploadedFiles.length > 0 ? `
+                            <button onclick="setScreen('options')" class="w-full bg-blue-600 text-white rounded-xl p-4 font-semibold mt-5 hover:bg-blue-700 transition-all active:scale-95">
+                                Continue to Print Options
+                            </button>
+                        ` : ''}
+                    </div>
+                </div>
+            `;
+        }
+
+        function OptionsScreen() {
+            const isColorBW = state.printOptions.colorMode === 'bw';
+            const isSingleSide = state.printOptions.sides === 'single';
+            
+            return `
+                <div class="min-h-screen bg-gray-50">
+                    <div class="bg-white border-b border-gray-200 p-4 flex items-center gap-3">
+                        <button onclick="setScreen('upload')" class="text-2xl text-gray-900 active:scale-90">←</button>
+                        <h1 class="text-2xl font-bold text-gray-900">Print Options</h1>
+                    </div>
+
+                    <div class="p-5 pb-24">
+                        <h2 class="text-lg font-bold text-gray-900 mb-4">Color Mode</h2>
+                        <div class="flex gap-3 mb-6">
+                            <div onclick="updatePrintOption('colorMode', 'bw')" class="flex-1 bg-white rounded-xl p-5 text-center cursor-pointer border-2 transition-all active:scale-95 ${isColorBW ? 'border-blue-600 bg-blue-50' : 'border-gray-200'}">
+                                <div class="text-3xl mb-3 ${isColorBW ? 'opacity-100' : 'opacity-50'}">⚫</div>
+                                <div class="font-semibold ${isColorBW ? 'text-blue-600' : 'text-gray-600'}">Black & White</div>
+                                <div class="text-sm text-gray-600 mt-1">₹1/page</div>
+                            </div>
+                            <div onclick="updatePrintOption('colorMode', 'color')" class="flex-1 bg-white rounded-xl p-5 text-center cursor-pointer border-2 transition-all active:scale-95 ${!isColorBW ? 'border-blue-600 bg-blue-50' : 'border-gray-200'}">
+                                <div class="text-3xl mb-3 ${!isColorBW ? 'opacity-100' : 'opacity-50'}">🎨</div>
+                                <div class="font-semibold ${!isColorBW ? 'text-blue-600' : 'text-gray-600'}">Color</div>
+                                <div class="text-sm text-gray-600 mt-1">₹5/page</div>
+                            </div>
+                        </div>
+
+                        <h2 class="text-lg font-bold text-gray-900 mb-4">Print Sides</h2>
+                        <div class="flex gap-3 mb-6">
+                            <div onclick="updatePrintOption('sides', 'single')" class="flex-1 bg-white rounded-xl p-5 text-center cursor-pointer border-2 transition-all active:scale-95 ${isSingleSide ? 'border-blue-600 bg-blue-50' : 'border-gray-200'}">
+                                <div class="text-3xl mb-3 ${isSingleSide ? 'opacity-100' : 'opacity-50'}">📄</div>
+                                <div class="font-semibold ${isSingleSide ? 'text-blue-600' : 'text-gray-600'}">Single Side</div>
+                            </div>
+                            <div onclick="updatePrintOption('sides', 'double')" class="flex-1 bg-white rounded-xl p-5 text-center cursor-pointer border-2 transition-all active:scale-95 ${!isSingleSide ? 'border-blue-600 bg-blue-50' : 'border-gray-200'}">
+                                <div class="text-3xl mb-3 ${!isSingleSide ? 'opacity-100' : 'opacity-50'}">📑</div>
+                                <div class="font-semibold ${!isSingleSide ? 'text-blue-600' : 'text-gray-600'}">Double Side</div>
+                                <div class="text-xs text-green-600 font-semibold mt-1">Save 30%</div>
+                            </div>
+                        </div>
+
+                        <h2 class="text-lg font-bold text-gray-900 mb-4">Number of Copies</h2>
+                        <div class="bg-white rounded-xl p-3 flex items-center justify-center gap-8 mb-6">
+                            <button onclick="decrementCopies()" ${state.printOptions.copies <= 1 ? 'disabled class="opacity-50"' : ''} class="w-12 h-12 rounded-full bg-blue-50 text-blue-600 text-2xl font-bold hover:bg-blue-100 active:scale-90 transition-all">−</button>
+                            <div class="text-3xl font-bold text-gray-900 w-10 text-center">${state.printOptions.copies}</div>
+                            <button onclick="incrementCopies()" ${state.printOptions.copies >= 10 ? 'disabled class="opacity-50"' : ''} class="w-12 h-12 rounded-full bg-blue-50 text-blue-600 text-2xl font-bold hover:bg-blue-100 active:scale-90 transition-all">+</button>
+                        </div>
+
+                        <div class="bg-white rounded-xl p-5 shadow-sm">
+                            <div class="flex justify-between mb-3">
+                                <span class="text-gray-600">Files</span>
+                                <span class="font-semibold text-gray-900">${state.uploadedFiles.length}</span>
+                            </div>
+                            <div class="flex justify-between mb-3">
+                                <span class="text-gray-600">Estimated Pages</span>
+                                <span class="font-semibold text-gray-900">${state.uploadedFiles.reduce((sum, file) => sum + file.pages, 0)}</span>
+                            </div>
+                            <div class="border-t border-gray-200 my-3"></div>
+                            <div class="flex justify-between">
+                                <span class="text-lg font-bold text-gray-900">Total Amount</span>
+                                <span class="text-2xl font-bold text-blue-600">₹${calculateTotal()}</span>
+                            </div>
+                        </div>
+
+                        <button onclick="setScreen('payment')" class="w-full bg-blue-600 text-white rounded-xl p-4 font-semibold mt-5 hover:bg-blue-700 transition-all active:scale-95">
+                            Proceed to Payment
+                        </button>
+                    </div>
+                </div>
+            `;
+        }
+
+        function PaymentScreen() {
+            return `
+                <div class="min-h-screen bg-gray-50">
+                    <div class="bg-white border-b border-gray-200 p-4 flex items-center gap-3">
+                        <button onclick="setScreen('options')" class="text-2xl text-gray-900 active:scale-90">←</button>
+                        <h1 class="text-2xl font-bold text-gray-900">Payment</h1>
+                    </div>
+
+                    <div class="p-5 pb-24">
+                        <div class="bg-white rounded-xl p-5 shadow-sm mb-5">
+                            <h2 class="text-lg font-bold text-gray-900 mb-4">Order Summary</h2>
+                            <div class="flex justify-between mb-2">
+                                <span class="text-gray-600">Machine</span>
+                                <span class="font-semibold text-gray-900">${state.selectedMachine?.name}</span>
+                            </div>
+                            <div class="flex justify-between mb-2">
+                                <span class="text-gray-600">Files</span>
+                                <span class="font-semibold text-gray-900">${state.uploadedFiles.length} documents</span>
+                            </div>
+                            <div class="flex justify-between mb-2">
+                                <span class="text-gray-600">Color</span>
+                                <span class="font-semibold text-gray-900">${state.printOptions.colorMode === 'bw' ? 'Black & White' : 'Color'}</span>
+                            </div>
+                            <div class="flex justify-between mb-2">
+                                <span class="text-gray-600">Sides</span>
+                                <span class="font-semibold text-gray-900">${state.printOptions.sides === 'single' ? 'Single' : 'Double'}</span>
+                            </div>
+                            <div class="flex justify-between mb-4">
+                                <span class="text-gray-600">Copies</span>
+                                <span class="font-semibold text-gray-900">${state.printOptions.copies}</span>
+                            </div>
+                            <div class="border-t border-gray-200 my-3"></div>
+                            <div class="flex justify-between">
+                                <span class="text-lg font-bold text-gray-900">Total Amount</span>
+                                <span class="text-2xl font-bold text-blue-600">₹${calculateTotal()}</span>
+                            </div>
+                        </div>
+
+                        <h2 class="text-lg font-bold text-gray-900 mb-4">Payment Method</h2>
+                        
+                        <div class="bg-white border border-gray-200 rounded-xl p-4 flex items-center gap-3 mb-3 cursor-pointer hover:border-blue-600 active:scale-95 transition-all">
+                            <div class="w-12 h-12 rounded-full bg-blue-50 flex items-center justify-center text-2xl">💳</div>
+                            <div class="flex-1">
+                                <div class="font-semibold text-gray-900">UPI</div>
+                                <div class="text-sm text-gray-600">GPay, PhonePe, Paytm</div>
+                            </div>
+                            <span class="text-2xl text-gray-400">›</span>
+                        </div>
+
+                        <div class="bg-white border border-gray-200 rounded-xl p-4 flex items-center gap-3 mb-3 cursor-pointer hover:border-blue-600 active:scale-95 transition-all">
+                            <div class="w-12 h-12 rounded-full bg-blue-50 flex items-center justify-center text-2xl">💳</div>
+                            <div class="flex-1">
+                                <div class="font-semibold text-gray-900">Card</div>
+                                <div class="text-sm text-gray-600">Credit or Debit Card</div>
+                            </div>
+                            <span class="text-2xl text-gray-400">›</span>
+                        </div>
+
+                        <div class="bg-white border border-gray-200 rounded-xl p-4 flex items-center gap-3 mb-5 cursor-pointer hover:border-blue-600 active:scale-95 transition-all">
+                            <div class="w-12 h-12 rounded-full bg-blue-50 flex items-center justify-center text-2xl">🏦</div>
+                            <div class="flex-1">
+                                <div class="font-semibold text-gray-900">Net Banking</div>
+                                <div class="text-sm text-gray-600">All major banks</div>
+                            </div>
+                            <span class="text-2xl text-gray-400">›</span>
+                        </div>
+
+                        <button onclick="handlePayment()" ${state.loading ? 'disabled' : ''} class="w-full bg-blue-600 text-white rounded-xl p-4 font-semibold hover:bg-blue-700 transition-all active:scale-95 disabled:bg-gray-400">
+                            ${state.loading ? `
+                                <div class="flex items-center justify-center gap-2">
+                                    <div class="w-5 h-5 border-3 border-white border-t-transparent rounded-full animate-spin"></div>
+                                    <span>Processing...</span>
+                                </div>
+                            ` : `Pay ₹${calculateTotal()}`}
+                        </button>
+                    </div>
+                </div>
+            `;
+        }
+
+        function HistoryScreen() {
+            return `
+                <div class="min-h-screen bg-gray-50">
+                    <div class="bg-white border-b border-gray-200 p-4 flex items-center gap-3">
+                        <button onclick="setScreen('home')" class="text-2xl text-gray-900 active:scale-90">←</button>
+                        <h1 class="text-2xl font-bold text-gray-900">Order History</h1>
+                    </div>
+
+                    <div class="p-5 pb-24">
+                        ${state.orderHistory.length === 0 ? `
+                            <div class="text-center py-20">
+                                <div class="text-6xl mb-4 opacity-30">🕐</div>
+                                <div class="text-lg font-semibold text-gray-600 mb-2">No orders yet</div>
+                                <div class="text-sm text-gray-500">Your print history will appear here</div>
+                            </div>
+                        ` : state.orderHistory.map(order => `
+                            <div class="bg-white rounded-xl p-5 mb-4 shadow-sm">
+                                <div class="flex justify-between mb-2">
+                                    <div class="font-bold text-gray-900">${order.machine.name}</div>
+                                    <div class="text-lg font-bold text-blue-600">₹${order.total}</div>
+                                </div>
+                                <div class="text-sm text-gray-600 mb-4">${formatDate(order.timestamp)}</div>
+                                <div class="border-t border-gray-200 my-3"></div>
+                                <div class="flex justify-between mb-2">
+                                    <span class="text-gray-600">Files:</span>
+                                    <span class="font-semibold text-gray-900">${order.files.length}</span>
+                                </div>
+                                <div class="flex justify-between mb-2">
+                                    <span class="text-gray-600">Color:</span>
+                                    <span class="font-semibold text-gray-900">${order.options.colorMode === 'bw' ? 'B&W' : 'Color'}</span>
+                                </div>
+                                <div class="flex justify-between mb-4">
+                                    <span class="text-gray-600">Sides:</span>
+                                    <span class="font-semibold text-gray-900">${order.options.sides === 'single' ? 'Single' : 'Double'}</span>
+                                </div>
+                                <div class="bg-blue-50 rounded-lg p-3 flex items-center justify-center gap-2">
+                                    <span class="text-sm text-blue-900">Password:</span>
+                                    <span class="text-base font-bold text-blue-900 tracking-wider">${order.password}</span>
+                                </div>
+                            </div>
+                        `).join('')}
+                    </div>
+
+                    ${BottomNav('history')}
+                </div>
+            `;
+        }
+
+        function BottomNav(active) {
+            return `
+                <div class="fixed bottom-0 left-0 right-0 bg-white border-t border-gray-200 flex max-w-md mx-auto">
+                    <button onclick="setScreen('home')" class="flex-1 py-3 flex flex-col items-center ${active === 'home' ? 'text-blue-600' : 'text-gray-500 hover:text-blue-600'} active:scale-90 transition-all">
+                        <span class="text-2xl">🏠</span>
+                        <span class="text-xs font-medium mt-1">Home</span>
+                    </button>
+                    <button onclick="setScreen('history')" class="flex-1 py-3 flex flex-col items-center ${active === 'history' ? 'text-blue-600' : 'text-gray-500 hover:text-blue-600'} active:scale-90 transition-all">
+                        <span class="text-2xl">🕐</span>
+                        <span class="text-xs font-medium mt-1">History</span>
+                    </button>
+                    <button class="flex-1 py-3 flex flex-col items-center text-gray-500 hover:text-blue-600 active:scale-90 transition-all">
+                        <span class="text-2xl">👤</span>
+                        <span class="text-xs font-medium mt-1">Profile</span>
+                    </button>
+                </div>
+            `;
+        }
+
+        function PasswordModal() {
+            if (!state.showPasswordModal) return '';
+            
+            return `
+                <div onclick="resetOrder()" class="fixed inset-0 bg-black bg-opacity-50 flex items-end z-50 modal-enter">
+                    <div onclick="event.stopPropagation()" class="bg-white rounded-t-3xl p-6 w-full max-w-md mx-auto">
+                        <div class="text-center text-6xl text-green-500 mb-4">✓</div>
+                        <h2 class="text-2xl font-bold text-gray-900 text-center mb-2">Payment Successful!</h2>
+                        <p class="text-gray-600 text-center mb-6">Your print job is ready</p>
+
+                        <div class="bg-blue-50 rounded-2xl p-6 text-center mb-5">
+                            <div class="text-xs text-gray-600 uppercase tracking-wider mb-2">Your Access Password</div>
+                            <div class="text-4xl font-bold text-blue-900 tracking-widest mb-3">${state.generatedPassword}</div>
+                            <p class="text-sm text-gray-600">Enter this password at the vending machine to collect your prints</p>
+                        </div>
+
+                        <div class="bg-gray-50 rounded-xl p-4 flex items-center gap-3 mb-3">
+                            <span class="text-xl">📍</span>
+                            <div class="flex-1">
+                                <div class="font-semibold text-gray-900">${state.selectedMachine?.name}</div>
+                                <div class="text-sm text-gray-600">${state.selectedMachine?.address}</div>
+                            </div>
+                        </div>
+
+                        <p class="text-xs text-gray-600 text-center mb-5">Valid for 24 hours</p>
+
+                        <button onclick="resetOrder()" class="w-full bg-blue-600 text-white rounded-xl p-4 font-semibold hover:bg-blue-700 active:scale-95 transition-all">
+                            Done
+                        </button>
+                    </div>
+                </div>
+            `;
+        }
+
+        // Event Handlers
+        function selectMachine(index) {
+            state.selectedMachine = MOCK_MACHINES[index];
+            state.currentScreen = 'upload';
+            render();
+        }
+
+        function handleFileChange(event) {
+            handleFileUpload(event.target.files);
+            event.target.value = ''; // Reset input
+        }
+
+        function incrementCopies() {
+            if (state.printOptions.copies < 10) {
+                state.printOptions.copies++;
+                render();
+            }
+        }
+
+        function decrementCopies() {
+            if (state.printOptions.copies > 1) {
+                state.printOptions.copies--;
+                render();
+            }
+        }
+
+        // Render Function
+        function render() {
+            let content = '';
+            
+            switch(state.currentScreen) {
+                case 'home':
+                    content = HomeScreen();
+                    break;
+                case 'upload':
+                    content = UploadScreen();
+                    break;
+                case 'options':
+                    content = OptionsScreen();
+                    break;
+                case 'payment':
+                    content = PaymentScreen();
+                    break;
+                case 'history':
+                    content = HistoryScreen();
+                    break;
+            }
+            
+            document.getElementById('app').innerHTML = `
+                <div class="max-w-md mx-auto bg-white min-h-screen shadow-2xl relative">
+                    ${content}
+                    ${PasswordModal()}
+                </div>
+            `;
+            
+            // Scroll to top on screen change
+            window.scrollTo(0, 0);
+        }
+
+        // Initialize App
+        render();
+
+        // Prevent zoom on double tap
+        let lastTouchEnd = 0;
+        document.addEventListener('touchend', function (event) {
+            const now = (new Date()).getTime();
+            if (now - lastTouchEnd <= 300) {
+                event.preventDefault();
+            }
+            lastTouchEnd = now;
+        }, false);
+    </script>
+</body>
+</html>
